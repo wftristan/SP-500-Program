@@ -30,7 +30,7 @@ finbert = pipeline("text-classification", model="ProsusAI/finbert", top_k=3)
 # --- 2. CAPITAL.COM API EXECUTION ---
 def execute_trade(direction):
     print(f"{Y}⚡ Connecting to Capital.com...{W}")
-    base_url = "https://api-capital.backend-capital.com/api/v1" # Change to demo-api if using Demo
+    base_url = "https://demo-api-capital.backend-capital.com/api/v1"
     
     # 1. Login
     auth_resp = requests.post(
