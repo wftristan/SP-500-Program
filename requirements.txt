@@ -1,0 +1,9 @@
+yfinance==0.2.36
+pandas==2.2.0
+feedparser==6.0.11
+gspread==6.0.0
+google-auth==2.27.0
+google-genai==0.3.0
+transformers==4.37.2
+torch==2.2.0
+requests==2.31.0
