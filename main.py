@@ -46,6 +46,14 @@ def execute_trade(direction):
     x_sec = auth_resp.headers.get("X-SECURITY-TOKEN")
     auth_headers = {"CST": cst, "X-SECURITY-TOKEN": x_sec}
 
+    # --- NEW: VERIFY ACCOUNT ---
+    acc_resp = requests.get(f"{base_url}/accounts", headers=auth_headers)
+    if acc_resp.status_code == 200:
+        accounts = acc_resp.json().get('accounts', [])
+        for acc in accounts:
+            print(f"{C}🏦 PRE-FLIGHT CHECK: Connected to Account ID: {acc.get('accountId')} | Type: {acc.get('accountType')}{W}")
+    # ---------------------------
+
     # 2. Get LIVE Capital.com Price for Stop Loss Math
     price_resp = requests.get(f"{base_url}/markets?epics=US500", headers=auth_headers)
     if price_resp.status_code != 200:
