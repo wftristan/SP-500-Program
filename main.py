@@ -107,4 +107,4 @@ def get_market_context():
         return None, 0, 0, 0
         
     df['SMA'] = df['Close'].rolling(window=200).mean()
-    tr = pd.concat([(df['High']-df['Low']), abs(df['High']-df['Close'].
+    tr = pd.concat([(df['High']-df['Low']), abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
