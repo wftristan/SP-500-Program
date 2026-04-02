@@ -28,23 +28,21 @@ print(f"{C}📡 Booting FinBERT NLP Engine...{W}")
 finbert = pipeline("text-classification", model="ProsusAI/finbert", top_k=3)
 
 # --- 2. CAPITAL.COM API EXECUTION ---
-def execute_trade(direction):
-    print(f"{Y}⚡ Connecting to Capital.com...{W}")
-    base_url = "https://demo-api-capital.backend-capital.com/api/v1"
+# 2. Get LIVE Capital.com Price for Stop Loss Math
+    # Fix: Use the direct epic endpoint /markets/{epic} instead of a query string
+    price_resp = requests.get(f"{base_url}/markets/US500", headers=auth_headers)
     
-    # 1. Login
-    auth_resp = requests.post(
-        f"{base_url}/session",
-        headers={"X-CAP-API-KEY": CAPITAL_API},
-        json={"identifier": CAPITAL_USER, "password": CAPITAL_PASS}
-    )
-    if auth_resp.status_code != 200:
-        print(f"{R}❌ Broker Auth Failed: {auth_resp.text}{W}")
+    if price_resp.status_code != 200:
+        print(f"{R}❌ Failed to fetch live price. Broker responded with: {price_resp.text}{W}")
         return False, 0
         
-    cst = auth_resp.headers.get("CST")
-    x_sec = auth_resp.headers.get("X-SECURITY-TOKEN")
-    auth_headers = {"CST": cst, "X-SECURITY-TOKEN": x_sec}
+    market_data = price_resp.json()
+    
+    # Fix: Capital.com direct endpoint returns 'snapshot' at the root level
+    live_bid = market_data['snapshot']['bid']
+    live_ask = market_data['snapshot']['offer']
+    
+    exec_price = live_ask if direction == "LONG" else live_bid
 
     # --- NEW: VERIFY ACCOUNT ---
     acc_resp = requests.get(f"{base_url}/accounts", headers=auth_headers)
