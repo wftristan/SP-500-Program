@@ -89,7 +89,16 @@ def execute_trade(direction):
 
 # --- 3. MARKET CONTEXT (YAHOO FOR HISTORICAL MATH) ---
 def get_market_context():
-    df = yf.download("ES=F", period="60d", interval="1h", progress=False, auto_adjust=False)
+    # 1. Put on the "Google Chrome" disguise
+    import requests
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+    
+    # 2. Ask for 'SPY' using the disguised session
+    df = yf.download("SPY", period="60d", interval="1h", progress=False, session=session)
+    
     if df.empty:
         print(f"{R}❌ Yahoo Finance blocked the request or data is empty.{W}")
         return None, 0, 0, 0
@@ -97,7 +106,12 @@ def get_market_context():
     df['SMA'] = df['Close'].rolling(window=200).mean()
     tr = pd.concat([(df['High']-df['Low']), abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
     df['ATR'] = tr.rolling(14).mean()
-    p, s, a = df['Close'].iloc[-1].item(), df['SMA'].iloc[-1].item(), df['ATR'].iloc[-1].item()
+    
+    # Extract values cleanly
+    p = float(df['Close'].iloc[-1].iloc[0] if isinstance(df['Close'].iloc[-1], pd.Series) else df['Close'].iloc[-1])
+    s = float(df['SMA'].iloc[-1].iloc[0] if isinstance(df['SMA'].iloc[-1], pd.Series) else df['SMA'].iloc[-1])
+    a = float(df['ATR'].iloc[-1].iloc[0] if isinstance(df['ATR'].iloc[-1], pd.Series) else df['ATR'].iloc[-1])
+    
     return ("BULLISH" if p > s else "BEARISH"), round(p,2), round(s,2), round(a,2)
 
 # --- 4. SENTIMENT ENGINE ---
