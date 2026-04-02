@@ -19,7 +19,7 @@ CAPITAL_USER = os.environ.get("CAPITAL_USER")
 CAPITAL_PASS = os.environ.get("CAPITAL_PASS")
 client = genai.Client(api_key=GEMINI_KEY)
 
-# Google Sheets Auth (Using Service Account for Server Automation)
+# Google Sheets Auth
 scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_info(eval(os.environ.get("GCP_CREDENTIALS")), scopes=scopes)
 gc = gspread.authorize(creds)
@@ -28,8 +28,8 @@ print(f"{C}📡 Booting FinBERT NLP Engine...{W}")
 finbert = pipeline("text-classification", model="ProsusAI/finbert", top_k=3)
 
 # --- 2. CAPITAL.COM API EXECUTION ---
-def execute_trade(direction, stop_loss_price):
-    print(f"{Y}⚡ Transmitting Order to Capital.com API...{W}")
+def execute_trade(direction):
+    print(f"{Y}⚡ Connecting to Capital.com...{W}")
     base_url = "https://api-capital.backend-capital.com/api/v1" # Change to demo-api if using Demo
     
     # 1. Login
@@ -40,32 +40,52 @@ def execute_trade(direction, stop_loss_price):
     )
     if auth_resp.status_code != 200:
         print(f"{R}❌ Broker Auth Failed: {auth_resp.text}{W}")
-        return False
+        return False, 0
         
     cst = auth_resp.headers.get("CST")
     x_sec = auth_resp.headers.get("X-SECURITY-TOKEN")
     auth_headers = {"CST": cst, "X-SECURITY-TOKEN": x_sec}
 
-    # 2. Place Order (Standard REST payload for Capital)
+    # 2. Get LIVE Capital.com Price for Stop Loss Math
+    price_resp = requests.get(f"{base_url}/markets?epics=US500", headers=auth_headers)
+    if price_resp.status_code != 200:
+        print(f"{R}❌ Failed to fetch live price from broker.{W}")
+        return False, 0
+        
+    market_data = price_resp.json()
+    live_bid = market_data['marketDetails'][0]['snapshot']['bid']
+    live_ask = market_data['marketDetails'][0]['snapshot']['offer']
+    exec_price = live_ask if direction == "LONG" else live_bid
+    
+    # 3. Calculate True MAE Stop
+    stop_dist = round(exec_price * 0.0030, 2)
+    stop_price = round(exec_price - stop_dist if direction == "LONG" else exec_price + stop_dist, 2)
+    print(f"🎯 Capital.com Live Price: {exec_price} | Hard Stop: {stop_price}")
+
+    # 4. Place Order
     order_payload = {
-        "epic": "US500", # Capital's exact ticker for S&P500
+        "epic": "US500",
         "direction": "BUY" if direction == "LONG" else "SELL",
-        "size": 1.0, # Minimum testing size
+        "size": 1.0, 
         "guaranteedStop": False,
-        "stopLevel": stop_loss_price
+        "stopLevel": stop_price
     }
     
     trade_resp = requests.post(f"{base_url}/positions", headers=auth_headers, json=order_payload)
     if trade_resp.status_code == 200:
         print(f"{G}✅ Trade Executed Successfully at {direction}{W}")
-        return True
+        return True, exec_price
     else:
         print(f"{R}❌ Trade Execution Failed: {trade_resp.text}{W}")
-        return False
+        return False, exec_price
 
-# --- 3. MARKET CONTEXT ---
+# --- 3. MARKET CONTEXT (YAHOO FOR HISTORICAL MATH) ---
 def get_market_context():
     df = yf.download("ES=F", period="60d", interval="1h", progress=False, auto_adjust=False)
+    if df.empty:
+        print(f"{R}❌ Yahoo Finance blocked the request or data is empty.{W}")
+        return None, 0, 0, 0
+        
     df['SMA'] = df['Close'].rolling(window=200).mean()
     tr = pd.concat([(df['High']-df['Low']), abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
     df['ATR'] = tr.rolling(14).mean()
@@ -90,28 +110,31 @@ def get_consensus_sentiment():
 
 # --- 5. EXECUTION CORE ---
 def run():
-    print(f"\n{C}🚀 V11 Automated FinBERT Engine Live...{W}")
+    print(f"\n{C}🚀 V12 Automated FinBERT Engine Live...{W}")
     sh = gc.open('Trading_Journal').worksheet('Sentiment_Log')
     prev_score = float(sh.acell('F2').value) if sh.acell('F2').value else 0.0
 
-    regime, price, sma, atr = get_market_context()
+    regime, yahoo_price, sma, atr = get_market_context()
+    if regime is None:
+        print(f"{Y}⚠️ Aborting this hour's run due to missing price data.{W}")
+        return
+        
     score, src = get_consensus_sentiment()
-    
     sig = "WAIT"
     if score <= -0.15: sig = "ENTER SHORT"
     elif score >= 0.15: sig = "ENTER LONG"
     elif abs(score) < 0.05 and abs(prev_score) >= 0.10: sig = "EXIT POSITION"
 
+    exec_price = yahoo_price # Default to Yahoo for the sheet unless a trade executes
+
     # --- EXECUTE BROKER API IF SIGNALED ---
     if "ENTER" in sig:
-        stop_dist = round(price * 0.0030, 2)
-        stop_price = round(price - stop_dist if "LONG" in sig else price + stop_dist, 2)
-        print(f"🛡️ Target MAE Stop: {stop_price}")
-        execute_trade("LONG" if "LONG" in sig else "SHORT", stop_price)
+        success, cap_price = execute_trade("LONG" if "LONG" in sig else "SHORT")
+        if cap_price > 0: exec_price = cap_price # Use the true broker price for the log
 
     # --- LOG TO SHEET ---
     delta = round(score - prev_score, 2)
-    sh.insert_row([datetime.now().strftime("%Y-%m-%d %H:%M"), price, sma, atr, regime, score, sig, src, "V11_Auto"], 2)
+    sh.insert_row([datetime.now().strftime("%Y-%m-%d %H:%M"), exec_price, sma, atr, regime, score, sig, src, "V12_Auto"], 2)
     print(f"[{sig}] | Score: {score} | Logged to Sheet.")
 
 if __name__ == "__main__":
