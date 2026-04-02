@@ -53,15 +53,21 @@ finbert = pipeline("text-classification", model="ProsusAI/finbert", top_k=3)
     # ---------------------------
 
     # 2. Get LIVE Capital.com Price for Stop Loss Math
-    price_resp = requests.get(f"{base_url}/markets?epics=US500", headers=auth_headers)
+    # FIX: We must URL-encode the space as %20 for the web request
+    price_resp = requests.get(f"{base_url}/markets/US%20500", headers=auth_headers)
+    
     if price_resp.status_code != 200:
-        print(f"{R}❌ Failed to fetch live price from broker.{W}")
+        print(f"{R}❌ Failed to fetch live price. Broker responded with: {price_resp.text}{W}")
         return False, 0
         
     market_data = price_resp.json()
-    live_bid = market_data['marketDetails'][0]['snapshot']['bid']
-    live_ask = market_data['marketDetails'][0]['snapshot']['offer']
+    live_bid = market_data['snapshot']['bid']
+    live_ask = market_data['snapshot']['offer']
     exec_price = live_ask if direction == "LONG" else live_bid
+    
+    stop_dist = round(exec_price * 0.0030, 2)
+    stop_price = round(exec_price - stop_dist if direction == "LONG" else exec_price + stop_dist, 2)
+    print(f"🎯 Capital.com Live Price: {exec_price} | Hard Stop: {stop_price}")
     
     # 3. Calculate True MAE Stop
     stop_dist = round(exec_price * 0.0030, 2)
@@ -70,7 +76,7 @@ finbert = pipeline("text-classification", model="ProsusAI/finbert", top_k=3)
 
     # 4. Place Order
     order_payload = {
-        "epic": "US500",
+        "epic": "US 500", # FIX: The exact ticker with the space for the JSON payload
         "direction": "BUY" if direction == "LONG" else "SELL",
         "size": 1.0, 
         "guaranteedStop": False,
