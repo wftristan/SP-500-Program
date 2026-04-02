@@ -20,7 +20,7 @@ CAPITAL_PASS = os.environ.get("CAPITAL_PASS")
 client = genai.Client(api_key=GEMINI_KEY)
 
 # Google Sheets Auth (Using Service Account for Server Automation)
-scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_info(eval(os.environ.get("GCP_CREDENTIALS")), scopes=scopes)
 gc = gspread.authorize(creds)
 
