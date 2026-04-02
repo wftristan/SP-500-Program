@@ -19,7 +19,6 @@ CAPITAL_USER = os.environ.get("CAPITAL_USER")
 CAPITAL_PASS = os.environ.get("CAPITAL_PASS")
 client = genai.Client(api_key=GEMINI_KEY)
 
-# Google Sheets Auth (Drive scope added for server search)
 scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_info(eval(os.environ.get("GCP_CREDENTIALS")), scopes=scopes)
 gc = gspread.authorize(creds)
@@ -32,7 +31,6 @@ def execute_trade(direction):
     print(f"{Y}⚡ Connecting to Capital.com Demo...{W}")
     base_url = "https://demo-api-capital.backend-capital.com/api/v1" 
     
-    # 1. Login
     auth_resp = requests.post(
         f"{base_url}/session",
         headers={"X-CAP-API-KEY": CAPITAL_API},
@@ -47,7 +45,7 @@ def execute_trade(direction):
     auth_headers = {"CST": cst, "X-SECURITY-TOKEN": x_sec}
 
     # 1.5. THE SAFETY LOCK
-    target_account = "316396775975691294" # S&P Program Demo Account
+    target_account = "316396775975691294" 
     switch_resp = requests.put(
         f"{base_url}/session", 
         headers=auth_headers, 
@@ -76,7 +74,7 @@ def execute_trade(direction):
     stop_price = round(exec_price - stop_dist if direction == "LONG" else exec_price + stop_dist, 2)
     print(f"🎯 Capital.com Live Price: {exec_price} | Hard Stop: {stop_price}")
 
-    # 4. Place Order (Literal Space in JSON)
+    # 4. Place Order
     order_payload = {
         "epic": "US 500", 
         "direction": "BUY" if direction == "LONG" else "SELL",
@@ -93,18 +91,87 @@ def execute_trade(direction):
         print(f"{R}❌ Trade Execution Failed: {trade_resp.text}{W}")
         return False, exec_price
 
-# --- 3. MARKET CONTEXT (YAHOO DISGUISE) ---
+# --- 3. MARKET CONTEXT ---
 def get_market_context():
-    # Put on the "Google Chrome" disguise to bypass Yahoo filters
     session = requests.Session()
     session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0'})
     
-    # Download SPY instead of ES=F to prevent blocks
     df = yf.download("SPY", period="60d", interval="1h", progress=False, session=session)
     
     if df.empty:
         print(f"{R}❌ Yahoo Finance blocked the request or data is empty.{W}")
         return None, 0, 0, 0
+        
+    df['SMA'] = df['Close'].rolling(window=200).mean()
+    tr = pd.concat([(df['High']-df['Low']), abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
+    df['ATR'] = tr.rolling(14).mean()
+    
+    p = float(df['Close'].iloc[-1].iloc[0] if isinstance(df['Close'].iloc[-1], pd.Series) else df['Close'].iloc[-1])
+    s = float(df['SMA'].iloc[-1].iloc[0] if isinstance(df['SMA'].iloc[-1], pd.Series) else df['SMA'].iloc[-1])
+    a = float(df['ATR'].iloc[-1].iloc[0] if isinstance(df['ATR'].iloc[-1], pd.Series) else df['ATR'].iloc[-1])
+    
+    return ("BULLISH" if p > s else "BEARISH"), round(p,2), round(s,2), round(a,2)
+
+# --- 4. SENTIMENT ENGINE (SANITIZED) ---
+def get_consensus_sentiment():
+    headlines = []
+    try:
+        f = feedparser.parse("https://feeds.content.dowjones.io/public/rss/mw_topstories")
+        if getattr(f, 'entries', None):
+            headlines = [e.title for e in f.entries[:10] if hasattr(e, 'title')]
+    except: pass
+
+    if not headlines:
+        try:
+            gn = feedparser.parse("https://news.google.com/rss/search?q=S%26P500&hl=en-US&gl=US&ceid=US:en")
+            if getattr(gn, 'entries', None):
+                headlines = [e.title for e in gn.entries[:10] if hasattr(e, 'title')]
+        except: pass
+
+    system_scores = []
+    for h in headlines:
+        if not h or not isinstance(h, str):
+            continue
+            
+        try:
+            results = finbert(str(h))[0]
+            probs = {res['label']: res['score'] for res in results}
+            system_scores.append(probs.get('positive', 0) - probs.get('negative', 0))
+        except:
+            continue 
+    
+    return round(sum(system_scores) / len(system_scores), 3) if system_scores else 0.0, "FINBERT"
+
+# --- 5. EXECUTION CORE ---
+def run():
+    print(f"\n{C}🚀 V13.1 Automated FinBERT Engine Live...{W}")
+    sh = gc.open('Trading_Journal').worksheet('Sentiment_Log')
+    prev_score = float(sh.acell('F2').value) if sh.acell('F2').value else 0.0
+
+    regime, yahoo_price, sma, atr = get_market_context()
+    if regime is None:
+        print(f"{Y}⚠️ Aborting this hour's run due to missing price data.{W}")
+        return
+        
+    score, src = get_consensus_sentiment()
+    sig = "WAIT"
+    if score <= -0.15: sig = "ENTER SHORT"
+    elif score >= 0.15: sig = "ENTER LONG"
+    elif abs(score) < 0.05 and abs(prev_score) >= 0.10: sig = "EXIT POSITION"
+
+    exec_price = yahoo_price 
+
+    if "ENTER" in sig:
+        success, cap_price = execute_trade("LONG" if "LONG" in sig else "SHORT")
+        if success and cap_price > 0: 
+            exec_price = cap_price 
+
+    delta = round(score - prev_score, 2)
+    sh.insert_row([datetime.now().strftime("%Y-%m-%d %H:%M"), exec_price, sma, atr, regime, score, sig, src, "V13_Auto"], 2)
+    print(f"[{sig}] | Score: {score} | Logged to Sheet.")
+
+if __name__ == "__main__":
+    run()
         
     df['SMA'] = df['Close'].rolling(window=200).mean()
     tr = pd.concat([(df['High']-df['Low']), abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
