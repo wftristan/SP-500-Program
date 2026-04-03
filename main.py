@@ -52,8 +52,9 @@ def run_engine():
         except Exception as e:
             print(f"{R}❌ Error parsing broker data: {e}{W}"); return
     else:
-        print(f"{R}❌ Broker historical data unavailable. Aborting.{W}"); return
-
+        print(f"{R}❌ Broker historical data unavailable.{W}")
+        print(f"{Y}🚨 BROKER RESPONSE: {hist_resp.text}{W}") # <--- THE WIRETAP
+        return
     # Calculate precise technicals on broker data
     df['SMA'] = df['Close'].rolling(window=200).mean()
     tr = pd.concat([(df['High']-df['Low']), abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
