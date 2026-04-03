@@ -22,7 +22,7 @@ print(f"{C}📡 Booting FinBERT NLP Engine...{W}")
 finbert = pipeline("text-classification", model="ProsusAI/finbert", top_k=3)
 
 def run_engine():
-    print(f"\n{C}🚀 V14 Institutional Engine Live (Internal Broker Data)...{W}")
+    print(f"\n{C}🚀 V14.1 Institutional Engine Live (Internal Broker Data)...{W}")
     base_url = "https://demo-api-capital.backend-capital.com/api/v1" 
     
     # --- 2. AUTHENTICATE ---
@@ -39,23 +39,24 @@ def run_engine():
         print(f"{R}❌ Safety Lock Failed. Aborting.{W}"); return
     print(f"{G}🔒 SAFETY LOCK: Execution locked to S&P Program ({target_account}){W}")
 
-    # --- 4. FETCH INTERNAL BROKER CHARTS (BYPASS YAHOO) ---
+    # --- 4. FETCH INTERNAL BROKER CHARTS (THE GOLDEN KEY) ---
     print(f"{Y}📊 Fetching 200-Hour Chart from Capital.com Servers...{W}")
-    hist_resp = requests.get(f"{base_url}/prices/US%20500?resolution=HOUR&max=250", headers=auth_headers)
+    # FIX: Using the strict 'US500' epic for the historical database
+    hist_resp = requests.get(f"{base_url}/prices/US500?resolution=HOUR&max=250", headers=auth_headers)
     
     if hist_resp.status_code == 200 and 'prices' in hist_resp.json():
         prices_data = hist_resp.json()['prices']
         try:
-            # Reconstruct the chart using the broker's own 'ask' prices
             records = [{'High': p['highPrice']['ask'], 'Low': p['lowPrice']['ask'], 'Close': p['closePrice']['ask']} for p in prices_data]
             df = pd.DataFrame(records)
         except Exception as e:
             print(f"{R}❌ Error parsing broker data: {e}{W}"); return
     else:
         print(f"{R}❌ Broker historical data unavailable.{W}")
-        print(f"{Y}🚨 BROKER RESPONSE: {hist_resp.text}{W}") # <--- THE WIRETAP
+        print(f"{Y}🚨 BROKER RESPONSE: {hist_resp.text}{W}") 
         return
-    # Calculate precise technicals on broker data
+
+    # Calculate precise technicals
     df['SMA'] = df['Close'].rolling(window=200).mean()
     tr = pd.concat([(df['High']-df['Low']), abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
     df['ATR'] = tr.rolling(14).mean()
@@ -95,7 +96,8 @@ def run_engine():
     exec_price = round(p, 2)
     
     if "ENTER" in sig:
-        price_resp = requests.get(f"{base_url}/markets/US%20500", headers=auth_headers)
+        # FIX: Using the strict 'US500' epic for the live market quote
+        price_resp = requests.get(f"{base_url}/markets/US500", headers=auth_headers)
         if price_resp.status_code == 200:
             live_ask = price_resp.json()['snapshot']['offer']
             live_bid = price_resp.json()['snapshot']['bid']
@@ -105,13 +107,14 @@ def run_engine():
             stop_price = round(exec_price - stop_dist if "LONG" in sig else exec_price + stop_dist, 2)
             print(f"🎯 Live Execution Target: {exec_price} | Hard Stop: {stop_price}")
 
-            order_payload = {"epic": "US 500", "direction": "BUY" if "LONG" in sig else "SELL", "size": 1.0, "guaranteedStop": False, "stopLevel": stop_price}
+            # FIX: Using the strict 'US500' epic for the trade execution payload
+            order_payload = {"epic": "US500", "direction": "BUY" if "LONG" in sig else "SELL", "size": 1.0, "guaranteedStop": False, "stopLevel": stop_price}
             trade_resp = requests.post(f"{base_url}/positions", headers=auth_headers, json=order_payload)
             if trade_resp.status_code == 200: print(f"{G}✅ Trade Executed Successfully{W}")
             else: print(f"{R}❌ Execution Failed: {trade_resp.text}{W}")
 
     # --- 7. GOOGLE SHEET LOGGING ---
-    sh.insert_row([datetime.now().strftime("%Y-%m-%d %H:%M"), exec_price, round(s,2), round(a,2), regime, score, sig, "FINBERT", "V14_Capital_Data"], 2)
+    sh.insert_row([datetime.now().strftime("%Y-%m-%d %H:%M"), exec_price, round(s,2), round(a,2), regime, score, sig, "FINBERT", "V14.1_Capital_Data"], 2)
     print(f"[{sig}] | Score: {score} | Logged to Sheet.")
 
 if __name__ == "__main__":
