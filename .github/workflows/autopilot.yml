@@ -1,9 +1,12 @@
-name: V14 Autopilot Engine
+name: V17 Autopilot Engine
 
 on:
   workflow_dispatch: # Keep the manual button active for testing
   schedule:
-    - cron: '0 * * * *' # Wake up at the top of every hour (Minute 0)
+    # Rule 1: Wake up every hour on Monday (1) through Friday (5)
+    - cron: '0 * * * 1-5' 
+    # Rule 2: Wake up at the top of the hour from 8 PM to 11 PM on Sunday (0)
+    - cron: '0 20-23 * * 0'
 
 jobs:
   execute-trade:
@@ -21,11 +24,13 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt
 
-      - name: Run V14 Institutional Engine
+      - name: Run V17 Institutional Engine
         env:
           CAPITAL_API_KEY: ${{ secrets.CAPITAL_API_KEY }}
           CAPITAL_USER: ${{ secrets.CAPITAL_USER }}
           CAPITAL_PASS: ${{ secrets.CAPITAL_PASS }}
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
